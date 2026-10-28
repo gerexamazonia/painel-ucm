@@ -12,6 +12,7 @@ import openpyxl
 
 src, out, mod = sys.argv[1], sys.argv[2], (sys.argv[3] if len(sys.argv) > 3 else '')
 wb = openpyxl.load_workbook(src, data_only=True)
+wbf = openpyxl.load_workbook(src, data_only=False)  # para saber se a célula ainda é fórmula (data do edital)
 EPOCH = dt.datetime(1899, 12, 30)
 
 
@@ -41,6 +42,8 @@ for nome in wb.sheetnames:
     if not re.fullmatch(r'\d{7}', nome):
         continue
     ws = wb[nome]
+    wf = wbf[nome]
+    base = ws['E6'].value
     contrato = str(ws['C2'].value or '').strip() or f'{nome[:3]}/{nome[3:]}'
     # localiza o cabeçalho (linha com "Início" na coluna G) para tolerar linhas inseridas
     head = next((r for r in range(1, 20) if 'In' in str(ws.cell(r, 7).value or '') and 'Fim' in str(ws.cell(r, 8).value or '')), 8)
@@ -51,21 +54,36 @@ for nome in wb.sheetnames:
             if 'TOTAL' in str(ws.cell(r, 2).value or '').upper():
                 break
             continue
-        ini, fim = data(ws.cell(r, 7).value), data(ws.cell(r, 8).value)
-        if ws.cell(r, 7).value not in (None, '') and ini is None:
-            avisos.append(f'{contrato} atividade {int(n)}: Início previsto ilegível ({ws.cell(r, 7).value!r})')
-        if ws.cell(r, 8).value not in (None, '') and fim is None:
-            avisos.append(f'{contrato} atividade {int(n)}: Fim previsto ilegível ({ws.cell(r, 8).value!r})')
+        def val(col):
+            v, f = ws.cell(r, col).value, wf.cell(r, col).value
+            if isinstance(f, str) and f.startswith('='):
+                m = re.search(r'EDATE\(\$E\$6,\s*(\d+)\)', f)
+                if v is None and m and isinstance(base, dt.datetime):  # arquivo salvo sem valores calculados
+                    mo = base.month - 1 + int(m.group(1)); y = base.year + mo // 12; mo = mo % 12 + 1
+                    import calendar
+                    v = base.replace(year=y, month=mo, day=min(base.day, calendar.monthrange(y, mo)[1]))
+                return v, 'edital'
+            return v, ('plano' if v not in (None, '') else '')
+        (vi, fi), (vf, ff) = val(7), val(8)
+        ini, fim = data(vi), data(vf)
+        if vi not in (None, '') and ini is None:
+            avisos.append(f'{contrato} atividade {int(n)}: Início previsto ilegível ({vi!r})')
+        if vf not in (None, '') and fim is None:
+            avisos.append(f'{contrato} atividade {int(n)}: Fim previsto ilegível ({vf!r})')
         if ini and fim and fim < ini:
             avisos.append(f'{contrato} atividade {int(n)}: Fim previsto ({fim}) antes do Início ({ini})')
         ativ.append({'n': int(n), 'rota': str(ws.cell(r, 2).value or '').split(' - ')[0].strip(),
                      'atividade': str(ws.cell(r, 3).value or '').strip(), 'inicio': ini, 'fim': fim,
+                     'fonte': 'plano' if 'plano' in (fi, ff) else 'edital',
                      'status': str(ws.cell(r, 10).value or '').strip()})
     if not any(a['fim'] for a in ativ if a['n'] <= 4):
         avisos.append(f'{contrato}: nenhuma data de Fim previsto nas atividades da Rota 1 (o painel usará OS + 5 meses)')
+    # linha 7: Plano de Ação (SEI) e data da atualização
+    sei = str(ws['E7'].value or '').strip() if str(ws['A7'].value or '').startswith('Plano') else ''
+    atualizado = data(ws['L7'].value) if str(ws['I7'].value or '').startswith('Datas') else None
     di = data(ws['E6'].value)
     for a in ativ:
-        contratos.append(dict({'chave': f"{contrato}|{a['n']}", 'contrato': contrato, 'data_inicio': di}, **a))
+        contratos.append(dict({'chave': f"{contrato}|{a['n']}", 'contrato': contrato, 'data_inicio': di, 'plano_sei': sei, 'datas_atualizadas_em': atualizado}, **a))
 
 json.dump({'arquivo_modificado_em': mod, 'linhas': contratos, 'avisos': avisos}, open(out, 'w'), ensure_ascii=False)
 print('ok cronograma', len({c['contrato'] for c in contratos}), 'contratos', len(contratos), 'linhas', len(avisos), 'avisos')

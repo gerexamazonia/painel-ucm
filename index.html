@@ -332,7 +332,7 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
           o[k + '_aprov'] = s(c, a, 'Aprovada');
         }
         const r1 = cr(c, [1, 2, 3, 4]), fins = r1.map((r) => r.fim).filter(Boolean).sort(), inis = r1.map((r) => r.inicio).filter(Boolean).sort();
-        if (fins.length) { o.prazo_rota1 = fins[fins.length - 1]; o.prazo_fonte = 'Cronograma UcM'; }
+        if (fins.length) { o.prazo_rota1 = fins[fins.length - 1]; o.prazo_fonte = r1.some((r) => r.fonte === 'plano') ? 'Plano de Ação (datas informadas pelo gestor no Cronograma UcM)' : 'Cronograma UcM (data calculada pelo edital)'; }
         if (inis.length) o.r1_inicio = inis[0];
         for (const r of cr(c, [1, 2, 3, 4, 5])) { o[`a${r.n}_ini`] = r.inicio || ''; o[`a${r.n}_fim`] = r.fim || ''; }
         o.a3_aguard = s(c, 'A3', 'Aguardando análise');
