@@ -66,6 +66,11 @@ for nome in wb.sheetnames:
             return v, ('plano' if v not in (None, '') else '')
         (vi, fi), (vf, ff) = val(7), val(8)
         ini, fim = data(vi), data(vf)
+        # colunas Q e R (ocultas) guardam a data de referência do edital: igual = ainda não alterada
+        ri, rf = data(val(17)[0]), data(val(18)[0])
+        if ri or rf:
+            fi = 'plano' if ini and ini != ri else 'edital'
+            ff = 'plano' if fim and fim != rf else 'edital'
         if vi not in (None, '') and ini is None:
             avisos.append(f'{contrato} atividade {int(n)}: Início previsto ilegível ({vi!r})')
         if vf not in (None, '') and fim is None:
