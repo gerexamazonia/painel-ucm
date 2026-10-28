@@ -66,11 +66,6 @@ for nome in wb.sheetnames:
             return v, ('plano' if v not in (None, '') else '')
         (vi, fi), (vf, ff) = val(7), val(8)
         ini, fim = data(vi), data(vf)
-        # colunas Q e R (ocultas) guardam a data de referência do edital: igual = ainda não alterada
-        ri, rf = data(val(17)[0]), data(val(18)[0])
-        if ri or rf:
-            fi = 'plano' if ini and ini != ri else 'edital'
-            ff = 'plano' if fim and fim != rf else 'edital'
         if vi not in (None, '') and ini is None:
             avisos.append(f'{contrato} atividade {int(n)}: Início previsto ilegível ({vi!r})')
         if vf not in (None, '') and fim is None:
@@ -79,10 +74,8 @@ for nome in wb.sheetnames:
             avisos.append(f'{contrato} atividade {int(n)}: Fim previsto ({fim}) antes do Início ({ini})')
         ativ.append({'n': int(n), 'rota': str(ws.cell(r, 2).value or '').split(' - ')[0].strip(),
                      'atividade': str(ws.cell(r, 3).value or '').strip(), 'inicio': ini, 'fim': fim,
-                     'fonte': 'plano' if 'plano' in (fi, ff) else 'edital',
+                     'fonte': 'plano' if 'plano' in (fi, ff) else ('edital' if 'edital' in (fi, ff) else ''),
                      'status': str(ws.cell(r, 10).value or '').strip()})
-    if not any(a['fim'] for a in ativ if a['n'] <= 4):
-        avisos.append(f'{contrato}: nenhuma data de Fim previsto nas atividades da Rota 1 (o painel usará OS + 5 meses)')
     # linha 7: Plano de Ação (SEI) e data da atualização
     sei = str(ws['E7'].value or '').strip() if str(ws['A7'].value or '').startswith('Plano') else ''
     atualizado = data(ws['L7'].value) if str(ws['I7'].value or '').startswith('Datas') else None
