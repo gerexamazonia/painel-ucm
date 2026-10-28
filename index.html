@@ -94,8 +94,8 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
   }
   async function start(der) {
     const priv = await importPriv(der);
-    const [lotes, sga] = await Promise.all([open(priv, 'data/lotes.enc.json'), open(priv, 'data/sga.enc.json')]);
-    DATA.lotes = lotes; Object.assign(DATA, sga);
+    const [lotes, sga, crono] = await Promise.all([open(priv, 'data/lotes.enc.json'), open(priv, 'data/sga.enc.json'), open(priv, 'data/cronograma.enc.json').catch(() => null)]);
+    DATA.lotes = lotes; Object.assign(DATA, sga); DATA.cronograma = (crono && crono.linhas) || [];
     for (const [id, o] of calcDefs) calcs[id] = o.fn(...o.inputs.map((i) => window.dash.data(i).data));
     status = 'ok';
     document.getElementById('uc-login').hidden = true;
@@ -242,14 +242,15 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
 
   <section class="uc-card" id="prazos">
     <h2>Execução e prazo da Rota 1 por contrato</h2>
-    <p class="uc-note">Prazo = 5º mês após a Ordem de Serviço (Anexo 2). Clique no cabeçalho para ordenar e numa linha para filtrar.</p>
+    <p class="uc-note">Datas previstas conforme o Cronograma UcM (abas dos contratos), preenchidas pelos gestores a partir dos Planos de Ação: início = menor Início previsto e fim = maior Fim previsto entre as atividades 1 a 4 da Rota 1. Sem data preenchida, vale o 5º mês após a Ordem de Serviço (Anexo 2). Clique no cabeçalho para ordenar e numa linha para filtrar.</p>
     <div class="uc-tablebox">
       <table class="uc-table" id="tabela-lotes" data-source="exec_lote" data-row-key="lote">
         <thead><tr>
           <th data-field="contrato" data-k="contrato">Contrato</th>
           <th data-field="lote" data-k="lote" class="num uc-hide-narrow">Lote</th>
           <th data-field="nucleo" data-k="nucleo">Núcleo</th>
-          <th data-field="prazo_rota1" data-k="prazo_rota1">Prazo Rota 1</th>
+          <th data-field="r1_inicio" data-k="r1_inicio" class="uc-hide-narrow">Início previsto</th>
+          <th data-field="prazo_rota1" data-k="prazo_rota1">Fim previsto Rota 1</th>
           <th data-field="ufpas" data-k="ufpas" class="num">UFPAs</th>
           <th data-field="a3_reg" data-k="a3_reg" class="num">Registrados</th>
           <th data-field="a3_aprov" data-k="a3_aprov" class="num">Aprovados</th>
@@ -305,7 +306,7 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
     </div>
   </section>
 <footer class="uc-foot">
-  <p><b>Fontes.</b> Execução: Sistema de Gestão de ATER (SGA/ANATER), relatório de atividades do projeto 47, atualizado automaticamente nos dias úteis. Metas, valores, datas das Ordens de Serviço e prazos: Cronograma UcM (posição de outubro/2026). Lote = numeração do Edital de Chamada Pública nº 001/2026.</p>
+  <p><b>Fontes.</b> Execução: Sistema de Gestão de ATER (SGA/ANATER), relatório de atividades do projeto 47, atualizado automaticamente nos dias úteis. Metas, valores e datas das Ordens de Serviço: Cronograma UcM (posição de outubro/2026). Datas de início e fim previstos das atividades: Cronograma UcM, abas dos contratos, atualizadas diariamente com o que os gestores preencherem. Lote = numeração do Edital de Chamada Pública nº 001/2026.</p>
   <p>Contagens agregadas por contrato, município e semana; o painel não contém dados pessoais de beneficiários, extensionistas ou analistas. Situação da análise conforme a avaliação registrada no SGA. Uso interno: não compartilhe a senha fora da equipe do programa.</p>
   <p>Programa União com os Municípios pela Redução do Desmatamento e Incêndios Florestais na Amazônia · GEREX Amazônia / ANATER · Fundo Amazônia/BNDES</p>
 </footer>
@@ -313,15 +314,16 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
 
 <script>
   dash.calc('exec_lote', {
-    inputs: ['lotes', 'sga_contrato'],
+    inputs: ['lotes', 'sga_contrato', 'cronograma'],
     title: 'Execução por contrato',
-    description: 'Metas do Cronograma por lote somadas às atividades registradas no SGA por contrato, atividade e situação da análise.',
-    fn: (lotes, sga_contrato) => {
+    description: 'Metas e datas previstas do Cronograma UcM por contrato somadas às atividades registradas no SGA por contrato, atividade e situação da análise.',
+    fn: (lotes, sga_contrato, cronograma) => {
+      const cr = (c, ns) => (cronograma || []).filter((r) => r.contrato === c && ns.includes(Number(r.n)));
       const s = (c, a, st) => sga_contrato.filter((r) => r.contrato === c && r.atividade === a && (!st || r.status === st)).reduce((t, r) => t + Number(r.qtd), 0);
       return lotes.map((l) => {
         const c = l.contrato, o = {
           lote: l.lote, contrato: c, nucleo: l.nucleo, uf: l.uf, estado: l.estado, gestor: l.gestor, situacao: l.situacao,
-          ufpas: l.ufpas, prazo_rota1: l.prazo_rota1,
+          ufpas: l.ufpas, prazo_rota1: l.prazo_rota1, r1_inicio: l.inicio_os, prazo_fonte: 'Anexo 2 (OS + 5 meses)',
           a1_prev: l.a1_prev, a2_prev: l.a2_prev, a3_prev: l.ufpas, a4_prev: l.ufpas, a5_prev: l.a5_prev,
         };
         for (const a of ['A1', 'A2', 'A3', 'A4', 'A5']) {
@@ -329,6 +331,10 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
           o[k + '_reg'] = s(c, a) - s(c, a, 'Reprovada');
           o[k + '_aprov'] = s(c, a, 'Aprovada');
         }
+        const r1 = cr(c, [1, 2, 3, 4]), fins = r1.map((r) => r.fim).filter(Boolean).sort(), inis = r1.map((r) => r.inicio).filter(Boolean).sort();
+        if (fins.length) { o.prazo_rota1 = fins[fins.length - 1]; o.prazo_fonte = 'Cronograma UcM'; }
+        if (inis.length) o.r1_inicio = inis[0];
+        for (const r of cr(c, [1, 2, 3, 4, 5])) { o[`a${r.n}_ini`] = r.inicio || ''; o[`a${r.n}_fim`] = r.fim || ''; }
         o.a3_aguard = s(c, 'A3', 'Aguardando análise');
         o.a3_dev = s(c, 'A3', 'Devolvida para ajuste');
         o.a3_repr = s(c, 'A3', 'Reprovada');
@@ -490,7 +496,8 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
       const d = document.createElement('div'); d.className = 'uc-act';
       const top = document.createElement('div'); top.className = 'uc-act-top';
       const n1 = document.createElement('span'); n1.textContent = `${i} · ${nome}`;
-      const n2 = document.createElement('span'); n2.className = 'n'; n2.textContent = `${nf.format(reg)} de ${nf.format(prev)} (${pctf.format(pe)}) · aprov. ${nf.format(apr)}`;
+      const um = p.lote !== 'Todos' ? ex.find((e) => String(e.lote) === p.lote) : null, fimA = um && um[`a${i}_fim`];
+      const n2 = document.createElement('span'); n2.className = 'n'; n2.textContent = `${nf.format(reg)} de ${nf.format(prev)} (${pctf.format(pe)}) · aprov. ${nf.format(apr)}` + (fimA ? ` · fim previsto ${dbr(fimA)}` : '');
       top.append(n1, n2);
       const tr = document.createElement('div'); tr.className = 'uc-track';
       const be = document.createElement('div'); be.className = 'uc-bar-e'; be.style.width = Math.min(100, pe * 100) + '%'; be.style.background = dash.colors[0];
@@ -585,8 +592,8 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
       const venc = l.situacao === 'Em execução' && l.prazo_rota1 <= new Date().toISOString().slice(0, 10);
       pill.className = 'uc-pill ' + (l.situacao !== 'Em execução' ? 'warn' : venc ? 'bad' : 'ok');
       pill.textContent = dbr(l.prazo_rota1) + (l.situacao !== 'Em execução' ? ' (susp.)' : venc ? ' (vencido)' : '');
-      pz.append(pill);
-      tr.append(td(l.contrato), td(String(l.lote), 'num uc-hide-narrow'), td(l.nucleo), pz, td(nf.format(l.ufpas), 'num'), td(nf.format(l.a3_reg), 'num'), td(nf.format(l.a3_aprov), 'num'), td(nf.format(l.a3_aguard), 'num uc-hide-narrow'), td(pctf.format(l.a3_pct_reg), 'num'), td(nf.format(l.t0_reg), 'num uc-hide-narrow'), td(nf.format(l.a4_reg), 'num uc-hide-narrow'));
+      pill.title = 'Fonte: ' + l.prazo_fonte; pz.append(pill);
+      tr.append(td(l.contrato), td(String(l.lote), 'num uc-hide-narrow'), td(l.nucleo), td(dbr(l.r1_inicio), 'uc-hide-narrow'), pz, td(nf.format(l.ufpas), 'num'), td(nf.format(l.a3_reg), 'num'), td(nf.format(l.a3_aprov), 'num'), td(nf.format(l.a3_aguard), 'num uc-hide-narrow'), td(pctf.format(l.a3_pct_reg), 'num'), td(nf.format(l.t0_reg), 'num uc-hide-narrow'), td(nf.format(l.a4_reg), 'num uc-hide-narrow'));
       tr.addEventListener('click', () => pickLote(l.lote)); return tr;
     }));
 

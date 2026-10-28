@@ -32,6 +32,13 @@ if modo == 'lotes':
     cifrar(json.load(open(origem)), os.path.join(repo, 'data', 'lotes.enc.json'))
     print('ok lotes')
     sys.exit(0)
+if modo == 'cronograma':
+    c = json.load(open(origem))
+    if len({l['contrato'] for l in c.get('linhas', [])}) < 16:
+        print('ERRO: cronograma com menos de 16 contratos; nada publicado'); sys.exit(2)
+    cifrar(c, os.path.join(repo, 'data', 'cronograma.enc.json'))
+    print('ok cronograma')
+    sys.exit(0)
 
 nomes = ['sga_contrato', 'sga_municipio', 'sga_semana', 'sga_atualizacao']
 dados = {n: json.load(open(os.path.join(origem, n + '.json'))) for n in nomes}
