@@ -96,6 +96,7 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
     const priv = await importPriv(der);
     const [lotes, sga, crono] = await Promise.all([open(priv, 'data/lotes.enc.json'), open(priv, 'data/sga.enc.json'), open(priv, 'data/cronograma.enc.json').catch(() => null)]);
     DATA.lotes = lotes; Object.assign(DATA, sga); DATA.cronograma = (crono && crono.linhas) || [];
+    try { DATA.mapa = await get('data/mapa.json'); } catch (e) { console.error(e); }
     for (const [id, o] of calcDefs) calcs[id] = o.fn(...o.inputs.map((i) => window.dash.data(i).data));
     status = 'ok';
     document.getElementById('uc-login').hidden = true;
@@ -180,6 +181,24 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
   [data-dash-source-state=empty] { color: transparent; }
   [data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
   .uc-fail { display: flex; align-items: center; justify-content: center; gap: var(--cds-gap-xs); color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); min-height: 8rem; }
+  .uc-map-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 15rem; gap: var(--cds-gap-lg); align-items: start; }
+  @media (max-width: 52rem) { .uc-map-wrap { grid-template-columns: minmax(0, 1fr); } }
+  .uc-map { position: relative; min-height: 12rem; }
+  .uc-map svg { display: block; width: 100%; height: auto; }
+  .uc-map .mun { stroke: var(--color-panel); stroke-width: .4; }
+  .uc-map .prog { stroke: #22302A; stroke-width: .9; cursor: pointer; }
+  .uc-map .prog:hover { stroke-width: 2.2; }
+  .uc-map .uf { fill: none; stroke: #5E6B64; stroke-width: 1.2; pointer-events: none; }
+  .uc-map .uflab { font-size: 11px; font-weight: 600; fill: #5E6B64; pointer-events: none; text-anchor: middle; }
+  .uc-map-side { display: grid; gap: var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .uc-seg { display: inline-flex; border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); overflow: hidden; }
+  .uc-seg button { font: inherit; font-size: var(--cds-font-size-caption); background: none; border: 0; padding: var(--cds-pad-xs) var(--cds-pad-sm); color: var(--color-fg); cursor: pointer; }
+  .uc-seg button[aria-pressed=true] { background: #3E6B48; color: #fff; }
+  .uc-scale { display: grid; gap: .3rem; }
+  .uc-scale div { display: flex; align-items: center; gap: .45rem; }
+  .uc-scale i { width: 1.1rem; height: .8rem; border-radius: 2px; border: 1px solid rgba(0,0,0,.15); flex: none; }
+  .uc-map-top { display: grid; gap: .2rem; }
+  .uc-map-top b { color: var(--color-fg); font-weight: var(--cds-font-weight-medium); }
   .uc-fail::before { content: ""; width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--color-bad); }
 </style>
 
@@ -224,6 +243,22 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
       <div class="uc-chart" id="evolucao-grafico" data-source="semanas"></div>
     </section>
   </div>
+
+  <section class="uc-card" id="mapa">
+    <h2>Mapa da execução por município</h2>
+    <p class="uc-note">Municípios do programa coloridos pela proporção da meta de UFPAs com cadastro e diagnóstico no SGA. Passe o mouse para ver os números e clique para filtrar o contrato.</p>
+    <div class="uc-map-wrap">
+      <div class="uc-map" id="mapa-svg" data-source="mapa"></div>
+      <div class="uc-map-side">
+        <div class="uc-seg" role="group" aria-label="Indicador do mapa">
+          <button type="button" data-ind="reg" aria-pressed="true">Registrados</button>
+          <button type="button" data-ind="aprov" aria-pressed="false">Aprovados</button>
+        </div>
+        <div class="uc-scale" id="mapa-legenda"></div>
+        <div class="uc-map-top" id="mapa-destaques"></div>
+      </div>
+    </div>
+  </section>
 
   <div class="uc-grid">
     <section class="uc-card" id="cadastros">
@@ -434,6 +469,8 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
   fl.addEventListener('change', () => dash.setParams({ lote: fl.value }));
   document.getElementById('f-limpar').addEventListener('click', () => dash.resetParams());
   const pickLote = (lote) => dash.setParams({ lote: String(lote) });
+  let mapaInd = 'reg';
+  document.querySelectorAll('#mapa .uc-seg button').forEach((b) => b.addEventListener('click', () => { mapaInd = b.dataset.ind; document.querySelectorAll('#mapa .uc-seg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); draw(); }));
 
   const sortState = {};
   const sortable = (id, def, dir) => {
@@ -467,6 +504,7 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
     document.querySelectorAll('.uc .sw1').forEach((e) => (e.style.background = dash.colors[1]));
     document.querySelectorAll('.uc .sw-meta').forEach((e) => (e.style.background = 'var(--cds-chart-grid)'));
     const L = dash.data('lotes'), X = dash.data('exec_lote'), R = dash.data('resumo'), S = dash.data('semanas'), M = dash.data('mun_exec'), U = dash.data('sga_atualizacao');
+    const G = dash.data('mapa');
     const lotes = L.status === 'ok' ? L.data : [];
     const ex = X.status === 'ok' ? X.data : [];
     const p = P(), key = chave();
@@ -531,6 +569,51 @@ html,body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:
         const t = tipIn(eb);
         bars.on('mousemove', (ev, d) => showTip(eb, t, ev, [`Semana de ${dbr(d.semana)}`, `Cadastros na semana: ${nf.format(d.cadastros)}`, `Acumulado: ${nf.format(d.acumulado)}`])).on('mouseleave', () => { t.hidden = true; });
       }
+    }
+
+    // Mapa por município
+    const mb = document.getElementById('mapa-svg');
+    if (G.status !== 'ok' || M.status !== 'ok') fail(mb, G.status !== 'ok' ? G.status : M.status);
+    else {
+      const nrm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      const exec = new Map(M.data.map((r) => [`${r.lote}|${nrm(r.municipio)}`, r]));
+      const feats = G.data.filter((f) => f.properties.camada === 'municipio');
+      const ufs = G.data.filter((f) => f.properties.camada === 'estado');
+      const prog = feats.filter((f) => f.properties.programa).map((f) => {
+        const q = f.properties, e = exec.get(`${q.lote}|${nrm(q.nome)}`) || {};
+        const reg = e.a3_reg || 0, apr = e.a3_aprov || 0;
+        return { f, q, e, reg, apr, pr: q.ufpas ? reg / q.ufpas : 0, pa: q.ufpas ? apr / q.ufpas : 0, ex: ex.find((x) => x.lote === q.lote) };
+      });
+      const ativo = (d) => d.ex && passa(d.ex);
+      const foco = prog.filter(ativo);
+      const W = Math.max(300, mb.clientWidth), H = Math.round(W * 0.62);
+      const pad = foco.length && foco.length < prog.length ? 36 : 10;
+      const proj = d3.geoMercator().fitExtent([[pad, pad], [W - pad, H - pad]], { type: 'FeatureCollection', features: (foco.length && foco.length < prog.length ? foco : prog).map((d) => d.f) });
+      const path = d3.geoPath(proj);
+      const BINS = [0.1, 0.25, 0.5], CORES = ['#EADFC6', '#BFD8B4', '#86B37C', '#4C8A58', '#24543A'];
+      const ind = mapaInd;
+      const val = (d) => (ind === 'aprov' ? d.pa : d.pr);
+      const cor = (d) => { const v = val(d), n = ind === 'aprov' ? d.apr : d.reg; if (!n) return CORES[0]; return CORES[1 + BINS.filter((b) => v >= b).length]; };
+      const svg = d3.create('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img').attr('aria-label', 'Mapa da execução por município');
+      svg.append('rect').attr('width', W).attr('height', H).attr('fill', '#F7FAF6');
+      svg.append('g').selectAll('path').data(feats.filter((f) => !f.properties.programa)).join('path').attr('class', 'mun').attr('d', path).attr('fill', '#F1F3F0');
+      const gp = svg.append('g').selectAll('path').data(prog).join('path').attr('class', 'prog').attr('d', (d) => path(d.f)).attr('fill', cor).attr('opacity', (d) => (ativo(d) ? 1 : 0.25));
+      svg.append('g').selectAll('path').data(ufs).join('path').attr('class', 'uf').attr('d', path);
+      svg.append('g').selectAll('text').data(ufs).join('text').attr('class', 'uflab').attr('transform', (f) => { const [x, y] = path.centroid(f); return `translate(${x},${y})`; }).text((f) => f.properties.uf).attr('display', (f) => { const [x, y] = path.centroid(f); return x > 10 && x < W - 10 && y > 10 && y < H - 10 ? null : 'none'; });
+      mb.replaceChildren(svg.node());
+      const t = tipIn(mb);
+      gp.on('mousemove', (ev, d) => showTip(mb, t, ev, [`${d.q.nome} (${d.q.uf})`, `Contrato ${d.q.contrato} · Lote ${d.q.lote}`, `Meta: ${nf.format(d.q.ufpas)} UFPAs`, `Cadastros registrados: ${nf.format(d.reg)} (${pctf.format(d.pr)})`, `Aprovados: ${nf.format(d.apr)} (${pctf.format(d.pa)})`, `Aguardando análise: ${nf.format(d.e.a3_aguard || 0)}`, `Diagnósticos T0: ${nf.format(d.e.t0_reg || 0)}`]))
+        .on('mouseleave', () => { t.hidden = true; }).on('click', (ev, d) => pickLote(d.q.lote));
+      const lg = document.getElementById('mapa-legenda');
+      const rot = ['Sem registro', 'Até 10% da meta', '10% a 25%', '25% a 50%', '50% ou mais'];
+      lg.replaceChildren(...CORES.map((c, i) => { const r = document.createElement('div'); const k = document.createElement('i'); k.style.background = c; r.append(k, document.createTextNode(rot[i])); return r; }));
+      const top = document.getElementById('mapa-destaques');
+      const vis = foco.length ? foco : prog;
+      const ord = [...vis].sort((a, b) => val(b) - val(a));
+      const semReg = vis.filter((d) => !(ind === 'aprov' ? d.apr : d.reg)).length;
+      const mk = (lbl, d) => { const p = document.createElement('div'); p.append(document.createTextNode(lbl + ' '), Object.assign(document.createElement('b'), { textContent: `${d.q.nome} (${d.q.uf})` }), document.createTextNode(` · ${pctf.format(val(d))}`)); return p; };
+      const h = Object.assign(document.createElement('div'), { textContent: `${vis.length} município(s) no filtro · ${semReg} sem ${ind === 'aprov' ? 'aprovação' : 'registro'}` });
+      top.replaceChildren(h, ...(ord.length ? [mk('Maior:', ord[0]), mk('Menor:', ord[ord.length - 1])] : []));
     }
 
     // Cadastros por lote
